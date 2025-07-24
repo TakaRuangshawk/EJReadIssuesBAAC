@@ -305,19 +305,24 @@ namespace EJReadIssuesBAAC
                 }
                 // อ่าน probname จาก csv
                 var probMap = File.ReadAllLines(masterCodePath)
-                .Skip(1)
-                .Select(line =>
-                {
-                    var parts = line.Split(',');
-                    return new
-                    {
-                        Code = parts[0].Trim(),     // probcode (DEVICE13)
-                        Name = parts[1].Trim(),     // probname (INOP)
-                        Remark = parts[2].Trim('"') // "Cassette Error"
-                    };
-                })
-                .Where(x => !string.IsNullOrEmpty(x.Code) && !string.IsNullOrEmpty(x.Name))
-                .ToList();
+                   .Skip(1)
+                   .Select(line =>
+                   {
+                       var parts = line.Split(',');
+                
+                       string rawName = parts[1].Trim();
+                       string cleanName = rawName.Replace("\\\"", "\"").Trim('"');  // แก้กรณี \"
+                
+                       return new
+                       {
+                           Code = parts[0].Trim(),       // DEVICE05
+                           Name = cleanName,             // TIME OUT, RETAIN CARD.
+                           Remark = parts[2].Trim('"')   // DEVICE (ใช้ probtype)
+                       };
+                   })
+                   .Where(x => !string.IsNullOrEmpty(x.Code) && !string.IsNullOrEmpty(x.Name))
+                   .ToList();
+
 
                 // สร้าง CSV output
                 var output = new List<string>();
@@ -361,10 +366,24 @@ namespace EJReadIssuesBAAC
                             // ✅ แล้วค่อยไปเช็ค probname
                             foreach (var prob in probMap)
                             {
-                                if (line.Contains(prob.Name))
+                                if (prob.Name == "DISPENSE NOTE FAILED / ERRCODE:")
                                 {
-                                    DateTime trxTime = lastKnownTime ?? datePart.Date; // fallback ถ้ายังไม่เคยเจอเวลา
+                                    // เช็คว่าบรรทัดขึ้นต้นด้วย pattern นี้
+                                    int index = line.IndexOf(prob.Name);
+                                    if (index >= 0)
+                                    {
+                                        DateTime trxTime = lastKnownTime ?? datePart.Date;
+                                        string fullRemark = line.Substring(index).Trim(); // เก็บทั้งข้อความที่เหลือจาก index ไป
+                                        string escapedRemark = fullRemark.Replace("\"", "\"\"");
 
+                                        string newLine = $"{terminalId},\"{prob.Code}\",\"{escapedRemark}\",,,{trxTime:yyyy-MM-dd HH:mm:ss},1,{now:yyyy-MM-dd HH:mm:ss},{now:yyyy-MM-dd HH:mm:ss},operation";
+                                        output.Add(newLine);
+                                        break;
+                                    }
+                                }
+                                else if (line.Contains(prob.Name))
+                                {
+                                    DateTime trxTime = lastKnownTime ?? datePart.Date;
                                     string remark = prob.Name.Replace("\"", "\"\"");
                                     string newLine = $"{terminalId},\"{prob.Code}\",\"{remark}\",,,{trxTime:yyyy-MM-dd HH:mm:ss},1,{now:yyyy-MM-dd HH:mm:ss},{now:yyyy-MM-dd HH:mm:ss},operation";
                                     output.Add(newLine);
@@ -372,6 +391,7 @@ namespace EJReadIssuesBAAC
                                 }
                             }
                         }
+
 
                     }
 
