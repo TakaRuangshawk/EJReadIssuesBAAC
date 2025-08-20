@@ -352,6 +352,7 @@ namespace EJReadIssuesBAAC
                         {
                             // ✅ พยายามหาเวลาในทุกบรรทัด แล้วเก็บไว้
                             var match = System.Text.RegularExpressions.Regex.Match(line, @"\d{2}:\d{2}:\d{2}(\.\d{1,3})?");
+                            int contentStartIndex = 0;
                             if (match.Success)
                             {
                                 string timeOnly = match.Value;
@@ -361,36 +362,25 @@ namespace EJReadIssuesBAAC
                                 }
 
                                 lastKnownTime = datePart.Date + timeParsed.TimeOfDay;
+                                contentStartIndex = match.Index + match.Length; // ตำแหน่งหลังเวลา
                             }
 
-                            // ✅ แล้วค่อยไปเช็ค probname
+                            string lineContent = line.Substring(contentStartIndex).Trim(); // ตัดเวลาออก เหลือแต่เนื้อหา
+
+                            // ✅ เทียบกับ prob.Name และเก็บ remark ทั้งบรรทัด (หลังเวลา)
                             foreach (var prob in probMap)
                             {
-                                if (prob.Name == "DISPENSE NOTE FAILED / ERRCODE:")
-                                {
-                                    // เช็คว่าบรรทัดขึ้นต้นด้วย pattern นี้
-                                    int index = line.IndexOf(prob.Name);
-                                    if (index >= 0)
-                                    {
-                                        DateTime trxTime = lastKnownTime ?? datePart.Date;
-                                        string fullRemark = line.Substring(index).Trim(); // เก็บทั้งข้อความที่เหลือจาก index ไป
-                                        string escapedRemark = fullRemark.Replace("\"", "\"\"");
-
-                                        string newLine = $"{terminalId},\"{prob.Code}\",\"{escapedRemark}\",,,{trxTime:yyyy-MM-dd HH:mm:ss},1,{now:yyyy-MM-dd HH:mm:ss},{now:yyyy-MM-dd HH:mm:ss},operation";
-                                        output.Add(newLine);
-                                        break;
-                                    }
-                                }
-                                else if (line.Contains(prob.Name))
+                                if (lineContent.Contains(prob.Name))
                                 {
                                     DateTime trxTime = lastKnownTime ?? datePart.Date;
-                                    string remark = prob.Name.Replace("\"", "\"\"");
+                                    string remark = lineContent.Replace("\"", "\"\""); // escape double quote
                                     string newLine = $"{terminalId},\"{prob.Code}\",\"{remark}\",,,{trxTime:yyyy-MM-dd HH:mm:ss},1,{now:yyyy-MM-dd HH:mm:ss},{now:yyyy-MM-dd HH:mm:ss},operation";
                                     output.Add(newLine);
                                     break;
                                 }
                             }
                         }
+
 
 
                     }

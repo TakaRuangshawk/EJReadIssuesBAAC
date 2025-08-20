@@ -1,6 +1,5 @@
 probcode,probname,probtype,probterm,status,displayflag,memo,createdate,updatedate,updateby
 DEVICE05,"TIME OUT, RETAIN CARD.",DEVICE,NULL,1,1,"Card Retain","2025-07-15 14:30:00","2025-07-15 14:30:00","Man Teerasith"
-DEVICE13,INOP,DEVICE,NULL,1,0,"Cassette Error","2025-07-15 14:30:00","2025-07-15 14:30:00","Man Teerasith"
 DEVICE14,"CARD RETAINED FAILED",DEVICE,NULL,1,1,"Card Retain","2025-07-15 14:30:00","2025-07-15 14:30:00","Man Teerasith"
 DEVICE17,"*DISPENSE FAILURE AND SEND REVERSAL MESSAGE!",DEVICE,NULL,1,0,"HW Error","2025-07-15 14:30:00","2025-07-15 14:30:00","Man Teerasith"
 DEVICE18,"BARCODE HWERROR",DEVICE,NULL,1,1,"Barcode Error","2025-07-15 14:30:00","2025-07-15 14:30:00","Man Teerasith"
