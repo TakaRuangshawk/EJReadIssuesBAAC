@@ -2,7 +2,12 @@ using System;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
+using System.Linq;                               // ✅ เพิ่ม (ใช้ .Select/.Where)
+using System.Threading;                         // ✅ เพิ่ม (background job)
+using System.Threading.Tasks;                   // ✅ เพิ่ม (background job)
+using System.Drawing;                           // ✅ เพิ่ม (Color)
 using System.Windows.Forms;
+using System.Configuration;                     // ✅ เพิ่ม (อ่าน App.config)
 using ClosedXML.Excel;
 using Renci.SshNet;
 
@@ -10,11 +15,13 @@ namespace EJReadIssuesBAAC
 {
     public partial class Form1 : Form
     {
+        // ✅ เพิ่ม: token สำหรับยกเลิก background job (auto run ตามเวลา)
+        private CancellationTokenSource _autoJobCts;
 
         public Form1()
         {
             InitializeComponent();
-            // เซ็ตค่า default ลง TextBox
+            // เซ็ตค่า default ลง TextBox (LastFolderPath มาจาก Settings.settings)
             string lastFolder = Properties.Settings.Default.LastFolderPath;
             if (string.IsNullOrWhiteSpace(lastFolder) || !Directory.Exists(lastFolder))
             {
@@ -25,6 +32,75 @@ namespace EJReadIssuesBAAC
                 txtFolderPath.Text = lastFolder;
             }
             datePicker.Value = DateTime.Today;
+
+            // ✅ เพิ่ม: เริ่ม background job สำหรับ auto-run ตามเวลาใน App.config
+            _autoJobCts = new CancellationTokenSource();
+            StartAutoJob(_autoJobCts.Token);
+        }
+
+        // ✅ เพิ่ม: ยกเลิก background job เมื่อปิดฟอร์ม
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            _autoJobCts.Cancel();
+            base.OnFormClosed(e);
+        }
+
+        // ✅ เพิ่ม: อ่านเวลา AutoRunTime จาก App.config -> รอจนถึง "เวลาถัดไป" -> ทำงาน -> วน
+        private async void StartAutoJob(CancellationToken token)
+        {
+            // อ่านค่าเวลาจาก App.config (เช่น "04:00" หรือ "23:30")
+            string runAtStr = ConfigurationManager.AppSettings["AutoRunTime"];  // จาก App.config
+            if (!TimeSpan.TryParse(runAtStr, out TimeSpan runTime))
+                runTime = new TimeSpan(4, 0, 0); // fallback = 04:00
+
+            while (!token.IsCancellationRequested)
+            {
+                DateTime now = DateTime.Now;
+                DateTime nextRun = NextRunTime(now, runTime); // เวลาถัดไปของวันนี้ ถ้าผ่านแล้วค่อยขยับไปวันถัดไป
+                TimeSpan wait = nextRun - now;
+
+                try
+                {
+                    await Task.Delay(wait, token);
+                }
+                catch (TaskCanceledException) { break; }
+
+                if (token.IsCancellationRequested) break;
+
+                try
+                {
+                    // ใช้ path ที่ฟอร์มตั้งไว้ (หรือ Desktop ถ้ายังไม่ตั้ง/ถูกลบ)
+                    string saveBaseDir = Properties.Settings.Default.LastFolderPath;
+                    if (string.IsNullOrWhiteSpace(saveBaseDir) || !Directory.Exists(saveBaseDir))
+                        saveBaseDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+
+                    // ทำ "เมื่อวาน"
+                    var targetDate = DateTime.Today.AddDays(-1);
+                    AutoExport.RunExport(saveBaseDir, targetDate);
+
+                    // แจ้งสถานะบนฟอร์ม
+                    this.Invoke(() =>
+                    {
+                        lblStatus.ForeColor = Color.Green;
+                        lblStatus.Text = $"[AUTO {runTime:hh\\:mm}] ✅ ส่งออก {targetDate:yyyyMMdd} สำเร็จ";
+                    });
+                }
+                catch (Exception ex)
+                {
+                    this.Invoke(() =>
+                    {
+                        lblStatus.ForeColor = Color.Red;
+                        lblStatus.Text = "[AUTO] ❌ " + ex.Message;
+                    });
+                }
+            }
+        }
+
+        // ✅ เพิ่ม: helper หาค่า "เวลาถัดไป" ตาม runTime (เช่น 04:00)
+        private static DateTime NextRunTime(DateTime now, TimeSpan targetTime)
+        {
+            var todayTarget = now.Date + targetTime;
+            return (now < todayTarget) ? todayTarget : todayTarget.AddDays(1);
         }
 
         private void btnDownload_Click(object sender, EventArgs e)
@@ -48,7 +124,6 @@ namespace EJReadIssuesBAAC
             : txtFolderPath.Text;
             string localPath = Path.Combine(baseDir, fileName);
 
-
             try
             {
                 using (var sftp = new SftpClient(serverIp, "root", "12qwaszx!@QWASZX"))
@@ -70,7 +145,6 @@ namespace EJReadIssuesBAAC
                 lblStatus.Text = $"เกิดข้อผิดพลาดจาก {serverIp}:\n{ex.Message}";
             }
         }
-
 
         private void LoadTerminalIdsFromSftp()
         {
@@ -126,9 +200,6 @@ namespace EJReadIssuesBAAC
                 MessageBox.Show("ไม่พบ ZIP จากทุกเครื่อง", "แจ้งเตือน", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
-
-
-
         private void datePicker_ValueChanged(object sender, EventArgs e)
         {
             if (datePicker.Value.Date < DateTime.Today)
@@ -136,7 +207,6 @@ namespace EJReadIssuesBAAC
                 LoadTerminalIdsFromSftp();
             }
         }
-
 
         private void btnDownloadAll_Click(object sender, EventArgs e)
         {
@@ -149,7 +219,7 @@ namespace EJReadIssuesBAAC
             string dateStr = datePicker.Value.ToString("yyyyMMdd");
             string remoteDir = $"/data1/fileserverBAAC/EJ/Operation/{dateStr}/";
 
-            // ✅ ใช้ path จาก txtFolderPath หรือ fallback เป็น Desktop
+            // ใช้ path จาก txtFolderPath หรือ fallback เป็น Desktop
             string baseDir = string.IsNullOrWhiteSpace(txtFolderPath.Text)
                 ? Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
                 : txtFolderPath.Text;
@@ -180,7 +250,7 @@ namespace EJReadIssuesBAAC
 
                 foreach (var item in cmbTerminalId.Items)
                 {
-                    string itemStr = item.ToString();
+                    string itemStr = item?.ToString() ?? "";
                     string[] parts = itemStr.Split('|');
                     if (parts.Length != 2) continue;
 
@@ -197,7 +267,7 @@ namespace EJReadIssuesBAAC
                     {
                         sftp.Connect();
 
-                        // ✅ ดาวน์โหลด .zip
+                        // ดาวน์โหลด .zip
                         using (var fileStream = File.Create(localZipPath))
                         {
                             sftp.DownloadFile(remoteFile, fileStream);
@@ -205,7 +275,7 @@ namespace EJReadIssuesBAAC
 
                         try
                         {
-                            // ✅ แตกไฟล์ .txt และตั้งชื่อใหม่ตาม .zip
+                            // แตกไฟล์ .txt และตั้งชื่อใหม่ตาม .zip
                             using (var archive = System.IO.Compression.ZipFile.OpenRead(localZipPath))
                             {
                                 foreach (var entry in archive.Entries)
@@ -219,7 +289,7 @@ namespace EJReadIssuesBAAC
                                 }
                             }
 
-                            // 🧹 ลบ zip หลังแตกเสร็จ
+                            // ลบ zip หลังแตกเสร็จ
                             File.Delete(localZipPath);
                         }
                         catch (Exception innerEx)
@@ -239,198 +309,27 @@ namespace EJReadIssuesBAAC
             }
         }
 
+        // ✅ เปลี่ยน: ปุ่ม manual สั้นลง เรียก AutoExport.RunExport(...) โดยใช้วันที่จาก datePicker
         private void btnExportEJAndCsv_Click(object sender, EventArgs e)
         {
-            string dateStr = datePicker.Value.ToString("yyyyMMdd");
-            string projectEJPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "EJ", dateStr);
-            string masterCodePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config", "mastercode_baac.csv");
-            if (Directory.Exists(projectEJPath))
-            {
-                Directory.Delete(projectEJPath, true); // ลบทั้งหมดทั้งไฟล์และ subfolder
-            }
-            Directory.CreateDirectory(projectEJPath); // สร้างใหม่
-
-            if (!File.Exists(masterCodePath))
-            {
-                MessageBox.Show("ไม่พบไฟล์ mastercode_baac.csv ในโฟลเดอร์ config", "ผิดพลาด", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            Directory.CreateDirectory(projectEJPath); // สร้างโฟลเดอร์ EJ/yyyyMMdd
-
-            try
-            {
-                string serversPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config", "servers.txt");
-                if (!File.Exists(serversPath))
-                {
-                    MessageBox.Show("ไม่พบไฟล์ servers.txt ในโฟลเดอร์ config", "ผิดพลาด", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-
-                var serverIps = File.ReadAllLines(serversPath)
-                                    .Select(ip => ip.Trim())
-                                    .Where(ip => !string.IsNullOrWhiteSpace(ip))
-                                    .ToList();
-                // โหลด ZIP จาก SFTP
-                foreach (var serverIp in serverIps)
-                {
-                    using (var sftp = new SftpClient(serverIp, "root", "12qwaszx!@QWASZX"))
-                    {
-                        sftp.Connect();
-
-                        string remoteDir = $"/data1/fileserverBAAC/EJ/Operation/{dateStr}/";
-                        var zips = sftp.ListDirectory(remoteDir)
-                                       .Where(f => !f.IsDirectory && f.Name.EndsWith(".zip"))
-                                       .ToList();
-
-                        foreach (var zip in zips)
-                        {
-                            string localZip = Path.Combine(projectEJPath, zip.Name);
-                            using (var fileStream = File.Create(localZip))
-                            {
-                                sftp.DownloadFile(zip.FullName, fileStream);
-                            }
-
-                            // แตก ZIP
-                            string tempExtractPath = Path.Combine(projectEJPath, Path.GetFileNameWithoutExtension(zip.Name));
-                            Directory.CreateDirectory(tempExtractPath);
-                            System.IO.Compression.ZipFile.ExtractToDirectory(localZip, tempExtractPath);
-
-                            // ลบ ZIP หลังแตก
-                            File.Delete(localZip);
-                        }
-
-                        sftp.Disconnect();
-                    }
-                }
-                // อ่าน probname จาก csv
-                var probMap = File.ReadAllLines(masterCodePath)
-                   .Skip(1)
-                   .Select(line =>
-                   {
-                       var parts = line.Split(',');
-                
-                       string rawName = parts[1].Trim();
-                       string cleanName = rawName.Replace("\\\"", "\"").Trim('"');  // แก้กรณี \"
-                
-                       return new
-                       {
-                           Code = parts[0].Trim(),       // DEVICE05
-                           Name = cleanName,             // TIME OUT, RETAIN CARD.
-                           Remark = parts[2].Trim('"')   // DEVICE (ใช้ probtype)
-                       };
-                   })
-                   .Where(x => !string.IsNullOrEmpty(x.Code) && !string.IsNullOrEmpty(x.Name))
-                   .ToList();
-
-
-                // สร้าง CSV output
-                var output = new List<string>();
-                output.Add("terminalid,probcode,remark,dtenderrcode13,dterrcode13,trxdatetime,status,createdate,updatedate,resolveprob");
-                DateTime now = DateTime.Now;
-
-                foreach (var dir in Directory.GetDirectories(projectEJPath))
-                {
-                    //string terminalId = Path.GetFileName(dir);
-                    foreach (var txtFile in Directory.GetFiles(dir, "*.txt"))
-                    {
-                        string folderName = new DirectoryInfo(Path.GetDirectoryName(txtFile)).Name;
-                        string terminalId = folderName.Split("_EJ")[0];
-                        string fileNameOnly = Path.GetFileNameWithoutExtension(txtFile); // EJ20250709
-                        string datePartStr = fileNameOnly.Replace("EJ", "");
-
-                        DateTime datePart;
-                        if (!DateTime.TryParseExact(datePartStr, "yyyyMMdd", null, System.Globalization.DateTimeStyles.None, out datePart))
-                        {
-                            datePart = now.Date; // fallback ถ้า parse ไม่ได้
-                        }
-
-                        var lines = File.ReadAllLines(txtFile);
-                        DateTime? lastKnownTime = null;
-
-                        foreach (var line in lines)
-                        {
-                            // ✅ พยายามหาเวลาในทุกบรรทัด แล้วเก็บไว้
-                            var match = System.Text.RegularExpressions.Regex.Match(line, @"\d{2}:\d{2}:\d{2}(\.\d{1,3})?");
-                            int contentStartIndex = 0;
-                            if (match.Success)
-                            {
-                                string timeOnly = match.Value;
-                                if (!DateTime.TryParseExact(timeOnly, "HH:mm:ss.fff", null, System.Globalization.DateTimeStyles.None, out var timeParsed))
-                                {
-                                    DateTime.TryParseExact(timeOnly, "HH:mm:ss", null, System.Globalization.DateTimeStyles.None, out timeParsed);
-                                }
-
-                                lastKnownTime = datePart.Date + timeParsed.TimeOfDay;
-                                contentStartIndex = match.Index + match.Length; // ตำแหน่งหลังเวลา
-                            }
-
-                            string lineContent = line.Substring(contentStartIndex).Trim(); // ตัดเวลาออก เหลือแต่เนื้อหา
-
-                            // ✅ เทียบกับ prob.Name และเก็บ remark ทั้งบรรทัด (หลังเวลา)
-                            foreach (var prob in probMap)
-                            {
-                                if (lineContent.Contains(prob.Name))
-                                {
-                                    DateTime trxTime = lastKnownTime ?? datePart.Date;
-                                    string remark = lineContent.Replace("\"", "\"\""); // escape double quote
-                                    string newLine = $"{terminalId},\"{prob.Code}\",\"{remark}\",,,{trxTime:yyyy-MM-dd HH:mm:ss},1,{now:yyyy-MM-dd HH:mm:ss},{now:yyyy-MM-dd HH:mm:ss},operation";
-                                    output.Add(newLine);
-                                    break;
-                                }
-                            }
-                        }
-
-
-
-                    }
-
-                }
-
-                string saveBaseDir = string.IsNullOrWhiteSpace(txtFolderPath.Text)
+            string saveBaseDir = string.IsNullOrWhiteSpace(txtFolderPath.Text)
                 ? Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
                 : txtFolderPath.Text;
 
-                string csvPath = Path.Combine(saveBaseDir, $"reportcase_{dateStr}.csv");
-                string xlsxPath = Path.Combine(saveBaseDir, $"reportcase_{dateStr}.xlsx");
-                File.WriteAllLines(csvPath, output, Encoding.UTF8);
+            try
+            {
+                var targetDate = datePicker.Value;   // manual ใช้วันที่จาก datePicker
+                AutoExport.RunExport(saveBaseDir, targetDate);
 
-                using (var workbook = new XLWorkbook())
-                {
-                    var worksheet = workbook.Worksheets.Add("Report Case");
-
-                    // Header
-                    var headers = output[0].Split(',');
-                    for (int i = 0; i < headers.Length; i++)
-                    {
-                        worksheet.Cell(1, i + 1).Value = headers[i];
-                        worksheet.Cell(1, i + 1).Style.Font.Bold = true;
-                    }
-
-                    // Data rows
-                    for (int row = 1; row < output.Count; row++)
-                    {
-                        var fields = output[row].Split(',');
-                        for (int col = 0; col < fields.Length; col++)
-                        {
-                            worksheet.Cell(row + 1, col + 1).Value = fields[col].Trim('"');
-                        }
-                    }
-
-                    worksheet.Columns().AdjustToContents(); // ปรับขนาดคอลัมน์อัตโนมัติ
-                    workbook.SaveAs(xlsxPath);
-                }
-
-                // ลบโฟลเดอร์ EJ/yyyyMMdd
-                Directory.Delete(projectEJPath, true);
-
-                MessageBox.Show($"✅ ส่งออก CSV แล้ว และลบไฟล์ EJ แล้ว:\n{csvPath}", "สำเร็จ", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show($"✅ ส่งออก CSV/XLSX แล้ว:\n{Path.Combine(saveBaseDir, $"reportcase_{targetDate:yyyyMMdd}.csv")}",
+                    "สำเร็จ", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"เกิดข้อผิดพลาด:\n{ex.Message}", "ผิดพลาด", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
+
         private void btnSelectFolder_Click(object sender, EventArgs e)
         {
             using (FolderBrowserDialog folderDlg = new FolderBrowserDialog())
@@ -446,11 +345,12 @@ namespace EJReadIssuesBAAC
                 }
             }
         }
+
         private void cmbTerminalId_TextChanged(object sender, EventArgs e)
         {
             string input = cmbTerminalId.Text.Trim();
 
-            // ✅ ให้เลือกเฉพาะตอนพิมพ์เกิน 2 ตัวอักษร
+            // เดิมโชว์ว่า "เกิน 2 ตัวอักษร" แต่โค้ดใช้ 11 ตัว — คงตามโค้ดของคุณไว้
             if (input.Length < 11)
             {
                 cmbTerminalId.SelectedItem = null;
@@ -474,11 +374,6 @@ namespace EJReadIssuesBAAC
                 }
             }
         }
-
-
-
-
-
 
     }
 }

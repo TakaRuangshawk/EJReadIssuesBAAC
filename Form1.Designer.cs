@@ -42,6 +42,8 @@
             lblStatus = new Label();
             btnDownloadAll = new Button();
             btnExportEJAndCsv = new Button();
+            txtFolderPath = new TextBox();
+            btnSelectFolder = new Button();
             SuspendLayout();
             // 
             // datePicker
@@ -54,7 +56,6 @@
             // 
             // cmbTerminalId
             // 
-            cmbTerminalId = new ComboBox();
             cmbTerminalId.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
             cmbTerminalId.AutoCompleteSource = AutoCompleteSource.ListItems;
             cmbTerminalId.Location = new Point(30, 70);
@@ -62,7 +63,6 @@
             cmbTerminalId.Size = new Size(410, 23);
             cmbTerminalId.TabIndex = 3;
             cmbTerminalId.TextChanged += cmbTerminalId_TextChanged;
-            this.Controls.Add(cmbTerminalId);
             // 
             // btnDownload
             // 
@@ -100,26 +100,31 @@
             btnExportEJAndCsv.Text = "Export Report";
             btnExportEJAndCsv.UseVisualStyleBackColor = true;
             btnExportEJAndCsv.Click += btnExportEJAndCsv_Click;
+            // 
             // txtFolderPath
-            txtFolderPath = new TextBox();
-            txtFolderPath.Location = new Point(30, 200); // ปรับตำแหน่งตามที่ต้องการ
-            txtFolderPath.Size = new Size(370, 23);
+            // 
+            txtFolderPath.Location = new Point(30, 200);
+            txtFolderPath.Name = "txtFolderPath";
             txtFolderPath.ReadOnly = true;
-            Controls.Add(txtFolderPath);
-           
+            txtFolderPath.Size = new Size(370, 23);
+            txtFolderPath.TabIndex = 4;
+            // 
             // btnSelectFolder
-            btnSelectFolder = new Button();
-            btnSelectFolder.Text = "เลือกโฟลเดอร์...";
-            btnSelectFolder.Location = new Point(410, 200); // ข้างกล่องข้อความ
+            // 
+            btnSelectFolder.Location = new Point(410, 200);
+            btnSelectFolder.Name = "btnSelectFolder";
             btnSelectFolder.Size = new Size(120, 23);
+            btnSelectFolder.TabIndex = 5;
+            btnSelectFolder.Text = "เลือกโฟลเดอร์...";
             btnSelectFolder.Click += btnSelectFolder_Click;
-            Controls.Add(btnSelectFolder);
             // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(600, 276);
+            Controls.Add(txtFolderPath);
+            Controls.Add(btnSelectFolder);
             Controls.Add(btnDownloadAll);
             Controls.Add(btnExportEJAndCsv);
             Controls.Add(datePicker);
@@ -129,6 +134,7 @@
             Name = "Form1";
             Text = "EJ File Downloader";
             ResumeLayout(false);
+            PerformLayout();
         }
 
 
